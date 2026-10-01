@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,24 +27,41 @@ jobs:
             wget \
             xz-utils \
             liblz4-tool \
-            libzstd-dev
+            libzstd-dev \
+            libelf-dev
+
+      - name: Find available defconfigs
+        id: find-defconfig
+        run: |
+          cd arch/arm64/configs
+          echo "Available defconfigs:"
+          ls -1 *.defconfig
+          # Ищем подходящий конфиг для G532G/grandpplte
+          for cfg in grandppltedx_defconfig grandpplte_defconfig sm_g532g_defconfig generic_arm64_defconfig; do
+            if [ -f "\$cfg" ]; then
+              echo "FOUND_CONFIG=$cfg" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "FOUND_CONFIG=generic_arm64_defconfig" >> \$GITHUB_OUTPUT
 
       - name: Setup environment variables
         run: |
           echo "ARCH=arm64" >> \$GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> \$GITHUB_ENV
+          echo "KBUILD_BUILD_USER=github-actions" >> \$GITHUB_ENV
+          echo "KBUILD_BUILD_HOST=github" >> \$GITHUB_ENV
 
-      - name: Generate defconfig (если grandppltedx_defconfig нет)
+      - name: Generate defconfig
         run: |
-          # Пытаемся найти любой defconfig, начинающийся на grandpplte
-          ls arch/arm64/configs/ | grep grandpplte || true
-          # Если не нашли, пробуем стандартный generic
-          if [ ! -f arch/arm64/configs/grandppltedx_defconfig ]; then
-            echo "Defconfig grandppltedx_defconfig not found. Trying to find alternative..."
-            # Для MT6737 часто используют generic_arm64_defconfig + overlay
-            cp arch/arm64/configs/generic_arm64_defconfig .config
+          cfg=\${{ steps.find-defconfig.outputs.FOUND_CONFIG }}
+          echo "Using defconfig: \$cfg"
+          if [ "\$cfg" = "generic_arm64_defconfig" ]; then
+            # Для generic нужно дополнительно включить нужные опции вручную или через .config
+            cp arch/arm64/configs/\$cfg .config
+            # Здесь можно добавить ручные включения через scripts/config, если нужно
           else
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- grandppltedx_defconfig
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- "\$cfg"
           fi
 
       - name: Build kernel
